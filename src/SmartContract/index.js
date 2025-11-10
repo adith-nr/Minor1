@@ -67,6 +67,10 @@ export const getMetaData = async (tokenId) => {
     return res;
 };
 
+export const getOwnerOf = async (tokenId) => {
+    const owner = await readOnlyContract.ownerOf(tokenId);
+    return owner;
+};
 
 const ensureSepoliaNetwork = async () => {
   const ethereum = getBrowserEthereum();
@@ -102,7 +106,7 @@ const ensureSepoliaNetwork = async () => {
 
 
 
-export const mintNFT = async (json, certificate) => {
+export const mintNFT = async (json, certificate, recipientAddress) => {
   try {
     await ensureSepoliaNetwork();
 
@@ -112,10 +116,14 @@ export const mintNFT = async (json, certificate) => {
     }
 
     const contractInstance = await getWriteContract();
+    if (!recipientAddress) {
+      throw new Error("Recipient address is required to mint this certificate.");
+    }
+    const normalizedRecipient = ethers.utils.getAddress(recipientAddress);
 
     console.log("🚀 Minting NFT...");
     const tx = await contractInstance.mint(
-      "0xA641eCDa4343765062d5BBB74b4c89BEfCCde132",
+      normalizedRecipient,
       `${json},${certificate}`
     );
     console.log("🧾 Transaction sent:", tx.hash);

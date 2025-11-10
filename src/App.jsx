@@ -1,60 +1,130 @@
 import React, { useEffect } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import {
+    BrowserRouter,
+    Route,
+    Routes,
+    Navigate,
+    Outlet,
+    useLocation,
+} from "react-router-dom";
 import { useDispatch } from "react-redux";
+import { SignedIn, SignedOut } from "@clerk/clerk-react";
 
 import Home from "./views/Home";
+import AdminLogin from "./views/AdminLogin";
 import Issue from "./views/Issue";
 import Retrieve from "./views/Retrieve";
 import CertificateTemplate from "./views/CertificateTemplate";
 import Certificates from "./views/Certificates";
-import Verify from "./views/Verify";
-import { requestAccount, getCount, getMetaData } from "./SmartContract";
+import { getCount, getMetaData, getOwnerOf } from "./SmartContract";
 import axios from "axios";
 import { certificateActions } from "./store/certificate-slice";
+import UserLogin from "./views/UserLogin";
+import UserCertificates from "./views/UserCertificates";
+
+const getStoredRole = () =>
+    typeof window !== "undefined" ? window.sessionStorage.getItem("authRole") : null;
+
+const ProtectedRoute = ({ allowedRole, redirectTo }) => {
+    const location = useLocation();
+    const role = getStoredRole();
+    const isAuthorized = role === allowedRole;
+
+    return (
+        <>
+            <SignedIn>
+                {isAuthorized ? (
+                    <Outlet />
+                ) : (
+                    <Navigate to={redirectTo} replace state={{ from: location }} />
+                )}
+            </SignedIn>
+            <SignedOut>
+                <Navigate to={redirectTo} replace state={{ from: location }} />
+            </SignedOut>
+        </>
+    );
+};
+
+const AuthRoute = () => {
+    const role = getStoredRole();
+    const destination = role === "user" ? "/user" : "/admin";
+
+    return (
+        <>
+            <SignedOut>
+                <AdminLogin />
+            </SignedOut>
+            <SignedIn>
+                <Navigate to={destination} replace />
+            </SignedIn>
+        </>
+    );
+};
+
+const UserAuthRoute = () => {
+    const role = getStoredRole();
+    const destination = role === "admin" ? "/admin" : "/user";
+
+    return (
+        <>
+            <SignedOut>
+                <UserLogin />
+            </SignedOut>
+            <SignedIn>
+                <Navigate to={destination} replace />
+            </SignedIn>
+        </>
+    );
+};
+
+
+
+
 
 const App = () => {
     const dispatch = useDispatch();
     const myFun = async () => {
-        // requestAccount();
-        const count = await getCount();
-        const organizations = new Set();
-        
-        for (let tokenId = 1; tokenId <= count; tokenId++) {
-            // while(count1!=count){
-            getMetaData(tokenId).then((result) => {
-                    console.log("count = " + tokenId);
-                    console.log(result);
-                    const [jsonCID, CertificateCID] = result.split(",");
+        try {
+            const count = await getCount();
+            const organizations = new Set();
 
-                    // console.log(jsonCID, CertificateCID);
-                    // axios
-                    //     .get(`https://gateway.pinata.cloud/ipfs/${jsonCID}`,{
-                    //         // headers:{
-                    //         // "x-frame-options":"allow"
-                    //         // }
-                    //     })
-                    axios.get(`https://ipfs.io/ipfs/${jsonCID}`)
-                        .then((response) => {
-                            // console.log(response.data);
-                            // organizations.add(response.data.organization);
-                            dispatch(
-                                certificateActions.addCertificate({
-                                    CertificateCID,
-                                    metadata: response.data,
-                                    id: tokenId,
-                                })
-                            );
-                            // setCount1((e)=>e+1);
+            for (let tokenId = 1; tokenId <= count; tokenId++) {
+                try {
+                    const result = await getMetaData(tokenId);
+                    const [jsonCID, CertificateCID] = result.split(",");
+                    if (!jsonCID) continue;
+
+                    const [response, ownerAddress] = await Promise.all([
+                        axios.get(`https://ipfs.io/ipfs/${jsonCID}`),
+                        getOwnerOf(tokenId),
+                    ]);
+
+                    const metadataWithOwner = {
+                        ...response.data,
+                        walletAddress: ownerAddress?.toLowerCase(),
+                    };
+
+                    dispatch(
+                        certificateActions.addCertificate({
+                            CertificateCID,
+                            metadata: metadataWithOwner,
+                            id: tokenId,
                         })
-                        .catch((error) => console.error(error));
-                })
-                .catch((err) => {
-                    console.log(err);
-                });
-            
-                setTimeout(()=>{},1000)
+                    );
+
+                    if (metadataWithOwner.organization) {
+                        organizations.add(metadataWithOwner.organization);
+                    }
+                } catch (tokenError) {
+                    console.error(`Failed to fetch metadata for token ${tokenId}`, tokenError);
+                }
+            }
+
+            dispatch(certificateActions.setOrganizations([...organizations]));
+        } catch (error) {
+            console.error("Unable to load certificates from chain", error);
         }
-        dispatch(certificateActions.setOrganizations([...organizations]));
     };
     useEffect(() => {
         myFun();
@@ -64,18 +134,26 @@ const App = () => {
         <>
             <BrowserRouter>
                 <Routes>
-                    <Route path='/'>
+                    <Route path="/" element={<Navigate to="/admin" replace />} />
+                    <Route path="/sign-in" element={<AuthRoute />} />
+                    <Route path="/user-sign-in" element={<UserAuthRoute />} />
+                    <Route
+                        path="/admin"
+                        element={
+                            <ProtectedRoute allowedRole="admin" redirectTo="/sign-in" />
+                        }>
                         <Route index element={<Home />} />
-                        <Route path='issue-certificate' element={<Issue />} />
-                        <Route path='certificates' element={<Certificates />} />
-                        <Route
-                            path='retrieve-certificate'
-                            element={<Retrieve />}
-                        />
-                        <Route
-                            path='editCerti'
-                            element={<CertificateTemplate />}
-                        />
+                        <Route path="issue-certificate" element={<Issue />} />
+                        <Route path="certificates" element={<Certificates />} />
+                        <Route path="retrieve-certificate" element={<Retrieve />} />
+                        <Route path="editCerti" element={<CertificateTemplate />} />
+                    </Route>
+                    <Route
+                        path="/user"
+                        element={
+                            <ProtectedRoute allowedRole="user" redirectTo="/user-sign-in" />
+                        }>
+                        <Route index element={<UserCertificates />} />
                     </Route>
                 </Routes>
             </BrowserRouter>

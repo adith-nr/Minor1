@@ -1,0 +1,25 @@
+.auth-layout {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+  font-weight: 700;
+}
+
+.auth-card {
+  width: min(475px, 100%);
+  text-align: center;
+  background: var(--surface);
+  padding: 32px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-card .cl-card {
+  box-shadow: none;
+  width: 100%;
+}

@@ -10,6 +10,7 @@ const MyForm = ({ cmp }) => {
     const [event, setEvent] = useState("");
     const [participantName, setParticipantName] = useState("");
     const [certificateName, setCertificateName] = useState("");
+    const [walletAddress, setWalletAddress] = useState("");
     const [pdfData, setPDFData] = useState("");
     const certificateInput = useRef();
 
@@ -79,11 +80,12 @@ const MyForm = ({ cmp }) => {
             pinata_secret_api_key: SECRET_KEY,
         };
 
-        const mataData = {
+        const metaData = {
             name: participantName,
             issue_date: new Date().toISOString(),
             organization,
             event,
+            walletAddress: walletAddress.trim(),
         };
 
         try {
@@ -91,7 +93,7 @@ const MyForm = ({ cmp }) => {
             setCertificateCID(res.data.IpfsHash);
 
             const jsonForm = new FormData();
-            const blob = new Blob([JSON.stringify(mataData)], {
+            const blob = new Blob([JSON.stringify(metaData)], {
                 type: "application/json",
             });
 
@@ -101,7 +103,7 @@ const MyForm = ({ cmp }) => {
             setJsonCID(jsonRes.data.IpfsHash);
 
             console.log("Pinata uploads complete, initiating mint.");
-            await mintNFT(jsonRes.data.IpfsHash, res.data.IpfsHash);
+            await mintNFT(jsonRes.data.IpfsHash, res.data.IpfsHash, walletAddress.trim());
         } catch (error) {
             console.error("Failed to upload to Pinata", error);
             alert(
@@ -118,6 +120,17 @@ const MyForm = ({ cmp }) => {
         const blob = dataURItoBlob();
         if (!blob) {
             alert("Please upload a certificate PDF before submitting.");
+            return;
+        }
+
+        const trimmedWallet = walletAddress.trim();
+        if (!trimmedWallet) {
+            alert("Please enter the recipient's wallet address.");
+            return;
+        }
+
+        if (!/^0x[a-fA-F0-9]{40}$/.test(trimmedWallet)) {
+            alert("Wallet address must be a valid 42-character hex string starting with 0x.");
             return;
         }
 
@@ -178,6 +191,18 @@ const MyForm = ({ cmp }) => {
                             id='participant_name'
                             name='participant_name'
                             placeholder='Enter Your Name'
+                        />
+                    </div>
+                    <div className='flex flex-col mt-5'>
+                        <label htmlFor='wallet_address'>Recipient Wallet Address</label>
+                        <input
+                            className='p-2 bg-gray-100 rounded-lg outline-my-purple mt-1'
+                            type='text'
+                            onChange={(e) => setWalletAddress(e.target.value)}
+                            value={walletAddress}
+                            id='wallet_address'
+                            name='wallet_address'
+                            placeholder='0x...'
                         />
                     </div>
                     <div className='flex flex-col mt-5'>
