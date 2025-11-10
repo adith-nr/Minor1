@@ -1,7 +1,6 @@
 import React, { useState, useRef } from "react";
 import certificate from "../assets/certificate_form.png";
 import axios from "axios";
-import FormData from "form-data";
 import { mintNFT } from "../SmartContract";
 
 // dotenv.config();
@@ -11,7 +10,7 @@ const MyForm = ({ cmp }) => {
     const [event, setEvent] = useState("");
     const [participantName, setParticipantName] = useState("");
     const [certificateName, setCertificateName] = useState("");
-    const [pdfData, setPDFData] = useState([]);
+    const [pdfData, setPDFData] = useState("");
     const certificateInput = useRef();
 
     const [certificateCID, setCertificateCID] = useState("");
@@ -28,13 +27,21 @@ const MyForm = ({ cmp }) => {
         const reader = new FileReader();
         reader.readAsDataURL(certificate); // Read Certificate
         reader.onloadend = function () {
-            setPDFData(reader.result);
+            if (typeof reader.result === "string") {
+                setPDFData(reader.result);
+            } else {
+                setPDFData("");
+            }
         };
 
         setCertificateName(certificate.name);
     };
 
     const dataURItoBlob = () => {
+        if (typeof pdfData !== "string" || pdfData.length === 0) {
+            return null;
+        }
+
         // Split the Data URI into metadata and data
         const [metadata, data] = pdfData.split(",");
 
@@ -59,18 +66,17 @@ const MyForm = ({ cmp }) => {
 
     const postCertificateToPinata = async (formData) => {
         console.log("Posting on pinata");
-        // Set your API key and secret key
         const API_KEY = import.meta.env.VITE_API_KEY;
         const SECRET_KEY = import.meta.env.VITE_SECRET_KEY;
-        // Set the API endpoint URL
-        const url = "https://api.pinata.cloud/pinning/pinFileToIPFS";
+        if (!API_KEY || !SECRET_KEY) {
+            alert("Missing Pinata API credentials. Please set VITE_API_KEY and VITE_SECRET_KEY.");
+            return;
+        }
 
-        // Set the headers with the API key and secret key
+        const url = "https://api.pinata.cloud/pinning/pinFileToIPFS";
         const headers = {
-            "Content-Type": `multipart/form-data; boundary=${formData._boundary}`,
             pinata_api_key: API_KEY,
             pinata_secret_api_key: SECRET_KEY,
-            "X-frame-options":"Allow"
         };
 
         const mataData = {
@@ -79,30 +85,41 @@ const MyForm = ({ cmp }) => {
             organization,
             event,
         };
-        const res = await axios.post(url, formData, { headers });
 
-        setCertificateCID(res.data.IpfsHash);
+        try {
+            const res = await axios.post(url, formData, { headers });
+            setCertificateCID(res.data.IpfsHash);
 
-        // store json data
-        const jsonForm = new FormData();
-        // Create a new Blob object from the JSON data
-        const blob = new Blob([JSON.stringify(mataData)], {
-            type: "application/json",
-        });
+            const jsonForm = new FormData();
+            const blob = new Blob([JSON.stringify(mataData)], {
+                type: "application/json",
+            });
 
-        // Append the Blob object to the FormData object with a filename
-        jsonForm.append("file", blob, certificateName + ".json");
-        const jsonRes = await axios.post(url, jsonForm, { headers });
+            jsonForm.append("file", blob, certificateName + ".json");
+            const jsonRes = await axios.post(url, jsonForm, { headers });
 
-        setJsonCID(jsonRes.data.IpfsHash);
+            setJsonCID(jsonRes.data.IpfsHash);
 
-        mintNFT(jsonRes.data.IpfsHash, res.data.IpfsHash);
+            console.log("Pinata uploads complete, initiating mint.");
+            await mintNFT(jsonRes.data.IpfsHash, res.data.IpfsHash);
+        } catch (error) {
+            console.error("Failed to upload to Pinata", error);
+            alert(
+                `Unable to upload certificate to Pinata: ${
+                    error?.response?.data?.error || error.message
+                }`
+            );
+        }
     };
 
     const handleSubmit = (e) => {
         e.preventDefault();
         // call backend api here and pass data of csv from csvData StateVariable
         const blob = dataURItoBlob();
+        if (!blob) {
+            alert("Please upload a certificate PDF before submitting.");
+            return;
+        }
 
         const formData = new FormData();
         formData.append("file", blob, certificateName);

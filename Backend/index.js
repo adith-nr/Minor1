@@ -119,4 +119,4 @@ app.post('/upload', upload.single('pdf'), (req, res) => {
 
 app.get("/getjsondata/:jsonCID", getJSONData);
 
-app.listen(5000, () => console.log("Server is running on port 5000"));
+app.listen(4000, () => console.log("Server is running on port 5000"));

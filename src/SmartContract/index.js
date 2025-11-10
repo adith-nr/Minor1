@@ -5,20 +5,37 @@ const contractAddress = "0xEc59Db10255668D6e0df90D1eac9e89a06924a77";
 const infuraProvider = new ethers.providers.JsonRpcProvider(
     "https://eth-sepolia.g.alchemy.com/v2/zEotRHIHt762GqCfnaj6tDD0ZH-GswVB"
 );
-const walletProvider = new ethers.providers.Web3Provider(ethereum);
-
-const getContractData = new ethers.Contract(
+const readOnlyContract = new ethers.Contract(
     contractAddress,
     contract.abi,
     infuraProvider
 );
-const sendContractData = new ethers.Contract(
-    contractAddress,
-    contract.abi,
-    walletProvider.getSigner()
-);
+
+const hasInjectedWallet = () =>
+    typeof window !== "undefined" && !!window.ethereum;
+
+const getBrowserEthereum = () => {
+    if (!hasInjectedWallet()) {
+        throw new Error("No injected wallet found. Please install MetaMask.");
+    }
+    return window.ethereum;
+};
+
+const getWriteContract = async () => {
+    const walletProvider = new ethers.providers.Web3Provider(getBrowserEthereum());
+    const accounts = await walletProvider.listAccounts();
+    if (!accounts.length) {
+        await walletProvider.send("eth_requestAccounts", []);
+    }
+    return new ethers.Contract(
+        contractAddress,
+        contract.abi,
+        walletProvider.getSigner()
+    );
+};
 
 export const requestAccount = async () => {
+    const ethereum = getBrowserEthereum();
     await ethereum.request({
         method: "wallet_requestPermissions",
         params: [
@@ -32,11 +49,11 @@ export const requestAccount = async () => {
         method: "eth_requestAccounts",
     });
     console.log(accounts);
-    setAddress(accounts[0]);
+    return accounts[0];
 };
 
 export const getCount = async () => {
-    const res = await getContractData.getCount();
+    const res = await readOnlyContract.getCount();
 
     // console.log(res.toNumber());
     return res.toNumber();
@@ -44,23 +61,83 @@ export const getCount = async () => {
 
 export const getMetaData = async (tokenId) => {
     console.log("calling metadata");
-    const res = await getContractData.getMetaData(tokenId);
+    const res = await readOnlyContract.getMetaData(tokenId);
 
     // console.log(res);
     return res;
 };
 
+
+const ensureSepoliaNetwork = async () => {
+  const ethereum = getBrowserEthereum();
+  try {
+    await ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: "0xaa36a7" }], // Sepolia (11155111)
+    });
+  } catch (switchError) {
+    // If Sepolia not added to MetaMask yet, add it
+    if (switchError.code === 4902) {
+      await ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [
+          {
+            chainId: "0xaa36a7",
+            chainName: "Sepolia Test Network",
+            rpcUrls: [
+              "https://eth-sepolia.g.alchemy.com/v2/zEotRHIHt762GqCfnaj6tDD0ZH-GswVB",
+            ],
+            nativeCurrency: { name: "SepoliaETH", symbol: "ETH", decimals: 18 },
+            blockExplorerUrls: ["https://sepolia.etherscan.io"],
+          },
+        ],
+      });
+    } else {
+      console.error(switchError);
+      throw switchError;
+    }
+  }
+};
+
+
+
+
 export const mintNFT = async (json, certificate) => {
-    console.log("Minting NFT");
-    console.log(json + "," + certificate + "JSON,CERTIFICATe");
-    const res = await sendContractData.mint(
-        "0x1fB06aff012815596121bFd86dD30B67fd3E54E0", // recipant Address
-        json + "," + certificate
+  try {
+    await ensureSepoliaNetwork();
+
+    if (!hasInjectedWallet()) {
+      console.warn("⚠️ No MetaMask found.");
+      return;
+    }
+
+    const contractInstance = await getWriteContract();
+
+    console.log("🚀 Minting NFT...");
+    const tx = await contractInstance.mint(
+      "0xA641eCDa4343765062d5BBB74b4c89BEfCCde132",
+      `${json},${certificate}`
     );
+    console.log("🧾 Transaction sent:", tx.hash);
 
-    await res.wait();
+    const receipt = await tx.wait();
+    console.log("✅ NFT Mint confirmed!");
 
-    console.log(res);
-    console.log(res.value);
-    console.log(res.value.toNumber());
+    // 🧩  Extract tokenId from the standard ERC-721 Transfer event
+    const transferEvent = receipt.events?.find((e) => e.event === "Transfer");
+    if (transferEvent) {
+      const tokenId = transferEvent.args.tokenId.toString();
+      console.log("🎟️ Minted Token ID:", tokenId);
+
+      // Optionally check ownership
+      const owner = await readOnlyContract.ownerOf(tokenId);
+      console.log("Owner:", owner);
+      return tokenId;
+    } else {
+      console.warn("⚠️ No Transfer event found. Couldn’t auto-detect token ID.");
+    }
+  } catch (err) {
+    console.error("❌ Minting failed:", err);
+    window?.alert?.(`Minting failed: ${err.message}`);
+  }
 };
