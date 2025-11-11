@@ -1,9 +1,16 @@
+<<<<<<< HEAD
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { NodeGlobalsPolyfillPlugin } from "@esbuild-plugins/node-globals-polyfill";
+=======
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { nodePolyfills } from 'vite-plugin-node-polyfills'
+>>>>>>> 664b9951a9be2fb3580767ccb212a9e331d2c0d5
 
 // ✅ Full configuration for React + Privy + Clerk + ethers.js
 export default defineConfig({
+<<<<<<< HEAD
   plugins: [react()],
 
   // Fix for Node built-ins (Buffer, process, etc.) when using ethers in browser
@@ -47,3 +54,19 @@ export default defineConfig({
     },
   },
 });
+=======
+  plugins: [
+    react(),
+    nodePolyfills(),
+  ],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+    },
+  },
+})
+>>>>>>> 664b9951a9be2fb3580767ccb212a9e331d2c0d5
