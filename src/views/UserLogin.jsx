@@ -1,10 +1,14 @@
 import React, { useEffect } from "react";
-import { SignIn } from "@clerk/clerk-react";
-import { Link } from "react-router-dom";
-import { usePrivy } from "@privy-io/react-auth";
+import { Link, useNavigate } from "react-router-dom";
+import { useWeb3AuthConnect, useWeb3AuthUser } from "@web3auth/modal/react";
+import { useAccount } from "wagmi";
+import "./Auth.css";
 
 function UserLogin() {
-  const { ready, authenticated } = usePrivy();
+  const { connect, isConnected } = useWeb3AuthConnect();
+  const { userInfo } = useWeb3AuthUser();
+  const { address } = useAccount();
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -12,8 +16,11 @@ function UserLogin() {
     }
   }, []);
 
-  // Optional: show loading state while Privy is initializing
-  if (!ready) return <div className="auth-layout">Connecting wallet...</div>;
+  useEffect(() => {
+    if (isConnected && userInfo) {
+      navigate("/user");
+    }
+  }, [isConnected, userInfo, navigate]);
 
   return (
     <div className="auth-layout">
@@ -25,18 +32,17 @@ function UserLogin() {
           </Link>
         </p>
 
-        <SignIn
-          appearance={{
-            layout: {
-              socialButtonsPlacement: "bottom",
-              logoPlacement: "outside",
-            },
-          }}
-          routing="path"
-          path="/user-sign-in"
-          afterSignInUrl="/user" // ✅ this redirects after Clerk login
-          afterSignUpUrl="/user"
-        />
+        {!isConnected ? (
+          <button className="login-btn" onClick={() => connect()}>
+            Login with Google (Web3Auth)
+          </button>
+        ) : (
+          <div className="logged-in">
+            <p>Connected as:</p>
+            <p className="wallet-address">{address}</p>
+            <p>Welcome, {userInfo?.name}</p>
+          </div>
+        )}
       </section>
     </div>
   );

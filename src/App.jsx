@@ -1,18 +1,7 @@
-import React, { useEffect } from "react";
-import {
-  BrowserRouter,
-  Route,
-  Routes,
-  Navigate,
-  Outlet,
-} from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Route, Routes, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { useDispatch } from "react-redux";
-import {
-  useAuth,
-  SignedIn,
-  SignedOut,
-  RedirectToSignIn,
-} from "@clerk/clerk-react";
+
 import Home from "./views/Home";
 import AdminLogin from "./views/AdminLogin";
 import Issue from "./views/Issue";
@@ -21,68 +10,124 @@ import CertificateTemplate from "./views/CertificateTemplate";
 import Certificates from "./views/Certificates";
 import UserLogin from "./views/UserLogin";
 import UserCertificates from "./views/UserCertificates";
+
 import { getCount, getMetaData, getOwnerOf } from "./SmartContract";
 import axios from "axios";
 import { certificateActions } from "./store/certificate-slice";
 
-/* -----------------------------------------
-   Loader while Clerk initializes
------------------------------------------- */
-const Loader = () => (
-  <div
-    style={{
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      height: "100vh",
-      background: "#0a0a0a",
-      color: "white",
-      fontSize: "1.2rem",
-      flexDirection: "column",
-    }}
-  >
-    <div className="loader mb-4 animate-spin border-4 border-gray-300 border-t-blue-500 rounded-full w-12 h-12"></div>
-    <p>Loading your session...</p>
-  </div>
-);
+import { useWeb3AuthConnect, useWeb3AuthUser } from "@web3auth/modal/react";
+import { useAccount } from "wagmi";
 
-/* -----------------------------------------
-   Role helper
------------------------------------------- */
-const getStoredRole = () =>
-  typeof window !== "undefined"
-    ? window.sessionStorage.getItem("authRole")
-    : null;
+// const Loader = () => (
+//   <div
+//     style={{
+//       display: "flex",
+//       alignItems: "center",
+//       justifyContent: "center",
+//       height: "100vh",
+//       background: "#0a0a0a",
+//       color: "white",
+//       fontSize: "1.2rem",
+//       flexDirection: "column",
+//     }}
+//   >
+//     <div className="loader mb-4 animate-spin border-4 border-gray-300 border-t-blue-500 rounded-full w-12 h-12"></div>
+//     <p>Loading Web3Auth...</p>
+//   </div>
+// );
 
-/* -----------------------------------------
-   ProtectedRoute: prevents unauthorized access
------------------------------------------- */
+const HomeRedirect = () => {
+  const navigate = useNavigate();
+  const [redirected, setRedirected] = useState(false);
+
+  useEffect(() => {
+    if (redirected) return;
+    const role =
+      typeof window !== "undefined"
+        ? window.sessionStorage.getItem("authRole")
+        : null;
+
+    console.log("🔁 Redirecting based on role:", role);
+
+    if (role === "user") navigate("/user", { replace: true });
+    else navigate("/admin", { replace: true });
+
+    setRedirected(true);
+  }, [navigate, redirected]);
+
+  return null;
+};
+
 const ProtectedRoute = ({ allowedRole, redirectTo }) => {
-  const role = getStoredRole();
-  if (!role) return <Navigate to={redirectTo} replace />;
-  if (role !== allowedRole)
-    return <Navigate to={role === "admin" ? "/admin" : "/user"} replace />;
+  const navigate = useNavigate();
+  const [hasNavigated, setHasNavigated] = useState(false);
+
+  useEffect(() => {
+    const role =
+      typeof window !== "undefined"
+        ? window.sessionStorage.getItem("authRole")
+        : null;
+
+    if (hasNavigated) return;
+    console.log(
+      `🛡️ Checking access for role "${role}" (allowed: ${allowedRole})`
+    );
+
+    if (!role) {
+      setHasNavigated(true);
+      navigate(redirectTo, { replace: true });
+      return;
+    }
+
+    if (role !== allowedRole) {
+      setHasNavigated(true);
+      navigate(role === "admin" ? "/admin" : "/user", { replace: true });
+    }
+  }, [allowedRole, redirectTo, navigate, hasNavigated]);
+
   return <Outlet />;
 };
 
-/* -----------------------------------------
-   App component
------------------------------------------- */
 const App = () => {
   const dispatch = useDispatch();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isConnected, status, connect } = useWeb3AuthConnect();
+  const { userInfo } = useWeb3AuthUser();
+  const { address } = useAccount();
+
+  console.log(
+    "⚙️ Rendering App | isConnected:",
+    isConnected,
+    "| address:",
+    address
+  );
+
+  useEffect(() => {
+    if (status === "ready" && !isConnected) {
+      console.log("⚡ Web3Auth ready → opening login modal automatically");
+      connect()
+        .then(() => console.log("✅ User login successful"))
+        .catch((err) => console.error("❌ Web3Auth auto-login failed:", err));
+    }
+  }, [status, isConnected, connect]);
 
   useEffect(() => {
     const loadCertificates = async () => {
+      console.log("🧩 Starting certificate load...");
+      const startTime = performance.now();
+
       try {
         const count = await getCount();
+        console.log("🧾 Total certificates found:", count);
         const organizations = new Set();
 
-        for (let tokenId = 1; tokenId <= count; tokenId++) {
+        const tokenIds = Array.from({ length: count }, (_, i) => i + 1);
+
+        const fetchPromises = tokenIds.map(async (tokenId) => {
+          console.log(`🔍 Fetching metadata for tokenId: ${tokenId}`);
           try {
             const result = await getMetaData(tokenId);
             const [jsonCID, CertificateCID] = result.split(",");
-            if (!jsonCID) continue;
+            if (!jsonCID) return null;
 
             const [response, ownerAddress] = await Promise.all([
               axios.get(`https://ipfs.io/ipfs/${jsonCID}`),
@@ -94,86 +139,106 @@ const App = () => {
               walletAddress: ownerAddress?.toLowerCase(),
             };
 
+            return {
+              tokenId,
+              CertificateCID,
+              metadataWithOwner,
+              organization: metadataWithOwner.organization,
+            };
+          } catch (err) {
+            console.error(
+              `❌ Failed to fetch metadata for token ${tokenId}`,
+              err
+            );
+            return null;
+          }
+        });
+
+        const allCertificateData = await Promise.all(fetchPromises);
+
+        allCertificateData.forEach((data) => {
+          if (data) {
             dispatch(
               certificateActions.addCertificate({
-                CertificateCID,
-                metadata: metadataWithOwner,
-                id: tokenId,
+                CertificateCID: data.CertificateCID,
+                metadata: data.metadataWithOwner,
+                id: data.tokenId,
               })
             );
-
-            if (metadataWithOwner.organization)
-              organizations.add(metadataWithOwner.organization);
-          } catch (err) {
-            console.error(`Failed to fetch metadata for token ${tokenId}`, err);
+            if (data.organization) {
+              organizations.add(data.organization);
+            }
+            console.log(`✅ Token ${data.tokenId} processed`);
           }
-        }
+        });
 
         dispatch(certificateActions.setOrganizations([...organizations]));
+        console.log(
+          `🏁 Certificate loading complete in ${Math.round(
+            performance.now() - startTime
+          )}ms`
+        );
       } catch (error) {
-        console.error("Unable to load certificates from chain", error);
+        console.error("🚨 Unable to load certificates from chain", error);
       }
     };
 
-    loadCertificates();
-  }, [dispatch]);
+    // --- THIS IS THE FIX ---
+    // Only run the fetch logic AFTER Web3Auth is ready AND
+    // the user has successfully connected their wallet.
+    if (status === "ready" && isConnected) {
+      console.log("✅ Connection active. Loading certificates...");
+      loadCertificates();
+    } else {
+      console.log("🕒 Waiting for Web3Auth connection to load certificates...");
+    }
+  }, [dispatch, status, isConnected]);
 
-  if (!isLoaded) return <Loader />;
+  // if (status !== "ready") {
+  //   console.log(" Waiting for Web3Auth session...");
+  //   return <Loader />;
+  // }
+
+  // console.log("🚀 Web3Auth ready → rendering routes");
 
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Default redirect */}
-        <Route path="/" element={<Navigate to="/admin" replace />} />
+    <Routes>
+      <Route path="/" element={<HomeRedirect />} />
 
-        {/* --- Admin routes --- */}
-        <Route
-          path="/admin"
-          element={
-            isSignedIn ? (
-              <ProtectedRoute allowedRole="admin" redirectTo="/sign-in" />
-            ) : (
-              <RedirectToSignIn />
-            )
-          }
-        >
-          <Route index element={<Home />} />
-          <Route path="issue-certificate" element={<Issue />} />
-          <Route path="certificates" element={<Certificates />} />
-          <Route path="retrieve-certificate" element={<Retrieve />} />
-          <Route path="editCerti" element={<CertificateTemplate />} />
-        </Route>
+      {/* --- Admin routes --- */}
+      <Route
+        path="/admin"
+        element={<ProtectedRoute allowedRole="admin" redirectTo="/sign-in" />}
+      >
+        <Route index element={<Home />} />
+        <Route path="issue-certificate" element={<Issue />} />
+        <Route path="certificates" element={<Certificates />} />
+        <Route path="retrieve-certificate" element={<Retrieve />} />
+        <Route path="editCerti" element={<CertificateTemplate />} />
+      </Route>
 
-        {/* --- User routes --- */}
-        <Route
-          path="/user"
-          element={
-            isSignedIn ? (
-              <ProtectedRoute allowedRole="user" redirectTo="/user-sign-in" />
-            ) : (
-              <RedirectToSignIn />
-            )
-          }
-        >
-          <Route index element={<UserCertificates />} />
-        </Route>
+      <Route
+        path="/user"
+        element={
+          <ProtectedRoute allowedRole="user" redirectTo="/user-sign-in" />
+        }
+      >
+        <Route index element={<UserCertificates />} />
+      </Route>
 
-        {/* --- Public routes --- */}
-        <Route
-          path="/sign-in"
-          element={
-            isSignedIn ? <Navigate to="/admin" replace /> : <AdminLogin />
-          }
-        />
-        <Route
-          path="/user-sign-in"
-          element={isSignedIn ? <Navigate to="/user" replace /> : <UserLogin />}
-        />
+      <Route
+        path="/sign-in"
+        element={
+          isConnected ? <Navigate to="/admin" replace /> : <AdminLogin />
+        }
+      />
+      <Route
+        path="/user-sign-in"
+        element={isConnected ? <Navigate to="/user" replace /> : <UserLogin />}
+      />
 
-        {/* Catch-all */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 };
 
