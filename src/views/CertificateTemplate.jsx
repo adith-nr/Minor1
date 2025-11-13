@@ -18,7 +18,7 @@ const CertificateTemplate = () => {
     const [name, setName] = useState("Your Name");
     const [event, setEvent] = useState("Machine Learning");
     const [heading, setHeading] = useState("certificate of completion");
-    const [date, setDate] = useState("31st March 2023");
+    const [date, setDate] = useState("15th November 2025");
     const [subheading, setSubheading] = useState(
         "This certificate is awarded for successfully completing a course of Machine Learning on 31st March 2023."
     );

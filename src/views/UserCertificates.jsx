@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useAccount } from "wagmi";
 import Nav from "../components/Nav";
@@ -15,6 +15,8 @@ const UserCertificates = () => {
     status: fetchStatus,
     error: fetchError,
   } = useSelector((state) => state.CertificateSlice);
+  const [copiedTokenId, setCopiedTokenId] = useState(null);
+  const [copyError, setCopyError] = useState("");
 
   useEffect(() => {
     if (fetchStatus === "idle") {
@@ -37,6 +39,31 @@ const UserCertificates = () => {
   }, [address]);
 
   const handleRefresh = () => dispatch(fetchCertificates());
+  const getShareLink = (tokenId) => {
+    const base =
+      typeof window !== "undefined" ? window.location.origin : "";
+    return `${base}/verify/${tokenId}`;
+  };
+
+  const handleShareLink = async (tokenId) => {
+    const link = getShareLink(tokenId);
+    try {
+      if (
+        typeof navigator !== "undefined" &&
+        navigator.clipboard?.writeText
+      ) {
+        await navigator.clipboard.writeText(link);
+        setCopiedTokenId(tokenId);
+        setCopyError("");
+        setTimeout(() => setCopiedTokenId(null), 2000);
+      } else {
+        throw new Error("Clipboard unsupported");
+      }
+    } catch (err) {
+      console.warn("Copy failed, showing fallback:", err);
+      setCopyError(`Copy failed. Share manually: ${link}`);
+    }
+  };
 
   const renderCertificates = () => {
     if (fetchStatus === "loading" || isConnecting) {
@@ -70,11 +97,32 @@ const UserCertificates = () => {
     return (
       <div className="flex flex-wrap gap-6 justify-center">
         {filteredCertificates.map((cert) => (
-          <CertificateCard
+          <div
             key={cert.id}
-            certificateCID={cert.CertificateCID}
-            metaData={cert.metadata}
-          />
+            className="flex flex-col gap-3 max-w-sm w-full bg-white/5 rounded-2xl p-3 border border-border/40"
+          >
+            <CertificateCard
+              certificateCID={cert.CertificateCID}
+              metaData={cert.metadata}
+            />
+            <div className="flex flex-col gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono truncate">
+                  {getShareLink(cert.id)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleShareLink(cert.id)}
+                  className="px-3 py-1 text-[11px] font-semibold rounded border border-accent text-accent hover:bg-accent/10"
+                >
+                  {copiedTokenId === cert.id ? "Copied" : "Copy link"}
+                </button>
+              </div>
+              {copiedTokenId === cert.id && (
+                <span className="text-green-500">Share URL copied!</span>
+              )}
+            </div>
+          </div>
         ))}
       </div>
     );
@@ -182,6 +230,11 @@ const UserCertificates = () => {
                 Every credential minted for your address shows up here the moment it hits the chain.
               </p>
             </div>
+            {copyError && (
+              <div className="mb-4 text-sm text-yellow-300 text-center">
+                {copyError}
+              </div>
+            )}
             {renderCertificates()}
           </div>
         </div>

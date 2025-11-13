@@ -1,11 +1,14 @@
 import mongoose from "mongoose";
+import dotenv from "dotenv";
 
-export const ConnectDB=async ()=>{
-    try {
-        await mongoose.connect("mongodb://localhost:27017/kol")
-        console.log("Connected to DB")
-    } catch (error) {
-        console.log(error)
-        console.log("Could not Connect to DB")
-    }
-}
+dotenv.config(); 
+
+export const ConnectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log("Connected to DB");
+  } catch (error) {
+    console.log(error);
+    console.log("Could not connect to DB");
+  }
+};

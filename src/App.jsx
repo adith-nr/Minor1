@@ -10,6 +10,7 @@ import CertificateTemplate from "./views/CertificateTemplate";
 import Certificates from "./views/Certificates";
 import UserLogin from "./views/UserLogin";
 import UserCertificates from "./views/UserCertificates";
+import VerifyCertificate from "./views/VerifyCertificate";
 
 import { getCount, getMetaData, getOwnerOf } from "./SmartContract";
 import axios from "axios";
@@ -262,6 +263,8 @@ const App = () => {
         path="/user-sign-in"
         element={isConnected ? <Navigate to="/user" replace /> : <UserLogin />}
       />
+
+      <Route path="/verify/:tokenId" element={<VerifyCertificate />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
